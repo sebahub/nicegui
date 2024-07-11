@@ -1,37 +1,53 @@
-#!/usr/bin/env python3
-from nicegui import ui, Tailwind
+import os
+from dotenv import load_dotenv
+from nicegui import ui
+from pyairtable import Api
+
+load_dotenv()
+
+def fetch_data():
+    api = Api(os.environ['AIRTABLE_API_KEY'])
+    table = api.table(os.environ['AIRTABLE_BASE_KEY'], os.environ['AIRTABLE_TABLE_NAME'])
+    return table.all()
+
+data = fetch_data()
 
 columns = [
-    {'field': 'name', 'editable': True, 'sortable': True},
-    {'field': 'age', 'editable': True},
-    {'field': 'id'},
-]
-rows = [
-    {'id': 0, 'name': 'Alice', 'age': 18},
-    {'id': 1, 'name': 'Bob', 'age': 21},
-    {'id': 2, 'name': 'Carol', 'age': 20},
+    {'field': 'Sorte', 'sortable': True},
+    {'field': 'THC', 'sortable': True},
+    {'field': 'CBD', 'sortable': True},
+    {'field': 'Dominanz', 'sortable': True},
+    {'field': 'Verfall', 'sortable': True},
+    {'field': 'PZN', 'sortable': False},
+    {'field': 'Charge', 'sortable': False, 'editable': True},
 ]
 
+
+rows = []
+for record in data:
+    row = {'id': record['id']}
+    for column in columns:
+        field_name = column['field']
+        row[field_name] = record['fields'].get(field_name, None)
+    rows.append(row)
 
 @ui.page('/')
 def page():
     ui.add_sass('./styles.sass')
-    def add_row():
-        new_id = max((dx['id'] for dx in rows), default=-1) + 1
-        rows.append({'id': new_id, 'name': 'New name', 'age': None})
-        ui.notify(f'Added row with ID {new_id}')
-        aggrid.update()
 
-    def handle_cell_value_change(e):
+    def handle_cell_value_change(e, table):
         new_row = e.args['data']
-        ui.notify(f'Updated row to: {e.args["data"]}')
+        record_id = new_row['id']
+        field_name = e.args['colId']
+        new_value = e.args['newValue']
+        
+        ui.notify(f'Record ID: {record_id}, Field: {field_name}, New Value: {new_value}')
+        
+        # Update the row data locally
         rows[:] = [row | new_row if row['id'] == new_row['id'] else row for row in rows]
-
-    async def delete_selected():
-        selected_id = [row['id'] for row in await aggrid.get_selected_rows()]
-        rows[:] = [row for row in rows if row['id'] not in selected_id]
-        ui.notify(f'Deleted row with ID {selected_id}')
-        aggrid.update()
+        
+        # Update the record in Airtable
+        table.update(record_id, {field_name: new_value})
 
     def test_function():
         ui.notify('test function')
@@ -41,7 +57,7 @@ def page():
         # ui.input(placeholder='suche').props('outlined dense filled standout color=teal').classes('search-bar')
         # input with html
         # ui.html('<input type="text" class="search-bar" placeholder="suche">')
-        search_input = ui.input(label='Search:', on_change=lambda e: search(e.value))
+        search_input = ui.input(label='Search:', on_change=lambda e: search(e.value)).classes('search-bar').props('dense')
         with ui.element('div').classes('flex gap-5'):
             with ui.element('button').on('click', test_function).classes('button'):
                 ui.label('print')
@@ -50,18 +66,22 @@ def page():
                 # ui.label('refresh')
                 ui.icon('refresh').classes('')
 
+    # Create the Airtable API object and fetch data
+    api = Api(os.environ['AIRTABLE_API_KEY'])
+    table = api.table(os.environ['AIRTABLE_BASE_KEY'], os.environ['AIRTABLE_TABLE_NAME'])
+
     aggrid = ui.aggrid({
         'columnDefs': columns,
         'rowData': rows,
         'rowSelection': 'multiple',
         'stopEditingWhenCellsLoseFocus': True,
-    }, theme='balham').on('cellValueChanged', handle_cell_value_change)
+    }).on('cellValueChanged', lambda e: handle_cell_value_change(e, table)).style('width: 100%')
 
     def search(query):
-        filtered_rows = [row for row in rows if query.lower() in row['name'].lower()]
+        filtered_rows = [row for row in rows if query.lower() in row['Sorte'].lower()]
         aggrid.options['rowData'] = filtered_rows
         aggrid.update()
-        ui.notify('..Suche')
+        # ui.notify('..Suche')
 
     # # Works both
     # with ui.element('div').classes('p-2 bg-blue-100').on('click', test_function):
